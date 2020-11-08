@@ -1,8 +1,6 @@
 package com.github.robertzych.kafka.streams.categorize;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.kafka.clients.consumer.ConsumerConfig;
 import org.apache.kafka.common.serialization.Deserializer;
 import org.apache.kafka.common.serialization.Serde;
@@ -12,6 +10,10 @@ import org.apache.kafka.connect.json.JsonDeserializer;
 import org.apache.kafka.connect.json.JsonSerializer;
 import org.apache.kafka.streams.*;
 import org.apache.kafka.streams.kstream.*;
+import org.apache.kafka.streams.state.KeyValueBytesStoreSupplier;
+import org.apache.kafka.streams.state.KeyValueStore;
+import org.apache.kafka.streams.state.StoreBuilder;
+import org.apache.kafka.streams.state.Stores;
 
 import java.text.DateFormat;
 import java.text.ParseException;
@@ -62,25 +64,38 @@ public class CategorizeWithKTableLookup {
         KStream<String, JsonNode> egvs = builder.stream("egvs_topic",
                 Consumed.with(Serdes.String(), jsonSerde));
 
+        String rangesStateStoreName = "rangesStore";
+//        KTable<Integer, JsonNode> ranges = builder.table("ranges_topic",
+//                Consumed.with(Serdes.Integer(), jsonSerde),
+//                Materialized.as(rangesStateStoreName));
         KTable<Integer, JsonNode> ranges = builder.table("ranges_topic",
                 Consumed.with(Serdes.Integer(), jsonSerde));
 
         ranges.toStream().to("ranges-output", Produced.with(Serdes.Integer(), jsonSerde));
 
         // enrich the egvs with lower/upper bounds from a matching range
-        KStream<String, JsonNode> enrichedEgvs = egvs
-                .flatMapValues(egv -> {
-                    List<JsonNode> newEgvs = new ArrayList<JsonNode>();
-                    List<JsonNode> matchingRanges = getMatchingRanges(ranges, egv);
-                    for (JsonNode matchingRange : matchingRanges){
-                        ObjectNode newEgv = JsonNodeFactory.instance.objectNode();
-                        newEgv.put("value", egv.get("value").asInt());
-                        newEgv.put("lowerBound", matchingRange.get("lowerBound").asInt());
-                        newEgv.put("upperBound", matchingRange.get("upperBound").asInt());
-                        newEgvs.add(newEgv);
-                    }
-                    return newEgvs;
-                });
+//        KStream<String, JsonNode> enrichedEgvs = egvs
+//                .flatMapValues(egv -> {
+//                    List<JsonNode> newEgvs = new ArrayList<JsonNode>();
+//                    List<JsonNode> matchingRanges = getMatchingRanges(ranges, egv);
+//                    for (JsonNode matchingRange : matchingRanges){
+//                        ObjectNode newEgv = JsonNodeFactory.instance.objectNode();
+//                        newEgv.put("value", egv.get("value").asInt());
+//                        newEgv.put("lowerBound", matchingRange.get("lowerBound").asInt());
+//                        newEgv.put("upperBound", matchingRange.get("upperBound").asInt());
+//                        newEgvs.add(newEgv);
+//                    }
+//                    return newEgvs;
+//                });
+
+        // TODO: use flatTransformValues() with rangesStateStoreName
+        KeyValueBytesStoreSupplier storeSupplier = Stores.inMemoryKeyValueStore(rangesStateStoreName);
+        StoreBuilder<KeyValueStore<Integer, JsonNode>> storeBuilder =
+                Stores.keyValueStoreBuilder(storeSupplier, Serdes.Integer(), jsonSerde);
+        builder.addStateStore(storeBuilder);
+        KStream<String, JsonNode> enrichedEgvs =
+                egvs.transformValues(() -> new EgvTransformer(rangesStateStoreName), rangesStateStoreName);
+
 
         // categorize the enriched egvs inRange=True based on the lower/upper bounds
         KStream<String, String> areValuesInRange = enrichedEgvs
