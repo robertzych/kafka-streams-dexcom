@@ -46,12 +46,31 @@ public class CategorizeWithKTableLookupTest {
         rangesTopic = testDriver.createInputTopic(
                 "ranges_topic", integerSerde.serializer(), jsonSerde.serializer());
 
-        // setup output topics
-        rangesOutputTopic = testDriver.createOutputTopic(
-                "ranges-output", integerSerde.deserializer(), jsonSerde.deserializer());
+        // setup output topic
         inRangeTopic = testDriver.createOutputTopic(
                 "are-values-in-range", stringSerde.deserializer(), stringSerde.deserializer());
 
+        // insert ranges into ranges_topic
+        ObjectNode whenSleepingRange = JsonNodeFactory.instance.objectNode();
+        whenSleepingRange.put("start_time", "00:00:00");
+        whenSleepingRange.put("end_time", "05:59:59");
+        whenSleepingRange.put("lower_bound", 80);
+        whenSleepingRange.put("upper_bound", 150);
+        rangesTopic.pipeInput(1, whenSleepingRange);
+
+        ObjectNode whenActiveRange = JsonNodeFactory.instance.objectNode();
+        whenActiveRange.put("start_time", "06:00:00");
+        whenActiveRange.put("end_time", "21:59:59");
+        whenActiveRange.put("lower_bound", 70);
+        whenActiveRange.put("upper_bound", 180);
+        rangesTopic.pipeInput(2, whenActiveRange);
+
+        ObjectNode eveningRange = JsonNodeFactory.instance.objectNode();
+        eveningRange.put("start_time", "22:00:00");
+        eveningRange.put("end_time", "23:59:59");
+        eveningRange.put("lower_bound", 80);
+        eveningRange.put("upper_bound", 150);
+        rangesTopic.pipeInput(3, eveningRange);
 
         // inserts egvs into egvs_topic
         ObjectNode lowEarlyMorningEgv = JsonNodeFactory.instance.objectNode();
@@ -73,33 +92,11 @@ public class CategorizeWithKTableLookupTest {
         highLateEveningEgv.put("value", 160);
         highLateEveningEgv.put("systemTime", "2020-11-02T23:00:00");
         egvsTopic.pipeInput("robert", highEgv);
-
-        // insert ranges into ranges_topic
-        ObjectNode whenSleepingRange = JsonNodeFactory.instance.objectNode();
-        whenSleepingRange.put("start_time", "22:00:00");
-        whenSleepingRange.put("end_time", "05:59:59");
-        whenSleepingRange.put("lower_bound", 80);
-        whenSleepingRange.put("upper_bound", 150);
-        rangesTopic.pipeInput(1, whenSleepingRange);
-
-        ObjectNode whenActiveRange = JsonNodeFactory.instance.objectNode();
-        whenActiveRange.put("start_time", "06:00:00");
-        whenActiveRange.put("end_time", "21:59:59");
-        whenActiveRange.put("lower_bound", 70);
-        whenActiveRange.put("upper_bound", 180);
-        rangesTopic.pipeInput(2, whenActiveRange);
     }
 
     @After
     public void tearDown(){
         testDriver.close();
-    }
-
-    @Test
-    public void RangesTopicHasRanges(){
-        JsonNode whenSleepingRange = rangesOutputTopic.readValue();
-        int lower_bound = whenSleepingRange.get("lower_bound").asInt();
-        assertEquals(80, lower_bound);
     }
 
     @Test

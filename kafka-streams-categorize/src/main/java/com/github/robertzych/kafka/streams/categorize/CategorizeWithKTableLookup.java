@@ -8,20 +8,12 @@ import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.connect.json.JsonDeserializer;
 import org.apache.kafka.connect.json.JsonSerializer;
-import org.apache.kafka.streams.*;
+import org.apache.kafka.streams.KafkaStreams;
+import org.apache.kafka.streams.StreamsBuilder;
+import org.apache.kafka.streams.StreamsConfig;
+import org.apache.kafka.streams.Topology;
 import org.apache.kafka.streams.kstream.*;
-import org.apache.kafka.streams.state.KeyValueBytesStoreSupplier;
-import org.apache.kafka.streams.state.KeyValueStore;
-import org.apache.kafka.streams.state.StoreBuilder;
-import org.apache.kafka.streams.state.Stores;
 
-import java.text.DateFormat;
-import java.text.ParseException;
-import java.text.SimpleDateFormat;
-import java.time.Instant;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
 import java.util.Properties;
 
 public class CategorizeWithKTableLookup {
@@ -65,78 +57,24 @@ public class CategorizeWithKTableLookup {
                 Consumed.with(Serdes.String(), jsonSerde));
 
         String rangesStateStoreName = "rangesStore";
-//        KTable<Integer, JsonNode> ranges = builder.table("ranges_topic",
-//                Consumed.with(Serdes.Integer(), jsonSerde),
-//                Materialized.as(rangesStateStoreName));
         KTable<Integer, JsonNode> ranges = builder.table("ranges_topic",
-                Consumed.with(Serdes.Integer(), jsonSerde));
-
-        ranges.toStream().to("ranges-output", Produced.with(Serdes.Integer(), jsonSerde));
+                Consumed.with(Serdes.Integer(), jsonSerde),
+                Materialized.as(rangesStateStoreName));
 
         // enrich the egvs with lower/upper bounds from a matching range
-//        KStream<String, JsonNode> enrichedEgvs = egvs
-//                .flatMapValues(egv -> {
-//                    List<JsonNode> newEgvs = new ArrayList<JsonNode>();
-//                    List<JsonNode> matchingRanges = getMatchingRanges(ranges, egv);
-//                    for (JsonNode matchingRange : matchingRanges){
-//                        ObjectNode newEgv = JsonNodeFactory.instance.objectNode();
-//                        newEgv.put("value", egv.get("value").asInt());
-//                        newEgv.put("lowerBound", matchingRange.get("lowerBound").asInt());
-//                        newEgv.put("upperBound", matchingRange.get("upperBound").asInt());
-//                        newEgvs.add(newEgv);
-//                    }
-//                    return newEgvs;
-//                });
-
-        // TODO: use flatTransformValues() with rangesStateStoreName
-        KeyValueBytesStoreSupplier storeSupplier = Stores.inMemoryKeyValueStore(rangesStateStoreName);
-        StoreBuilder<KeyValueStore<Integer, JsonNode>> storeBuilder =
-                Stores.keyValueStoreBuilder(storeSupplier, Serdes.Integer(), jsonSerde);
-        builder.addStateStore(storeBuilder);
         KStream<String, JsonNode> enrichedEgvs =
                 egvs.transformValues(() -> new EgvTransformer(rangesStateStoreName), rangesStateStoreName);
-
 
         // categorize the enriched egvs inRange=True based on the lower/upper bounds
         KStream<String, String> areValuesInRange = enrichedEgvs
                 .mapValues(enrichedEgv -> {
                     int integerValue = enrichedEgv.get("value").asInt();
-                    int lowerBound = enrichedEgv.get("lowerBound").asInt();
-                    int upperBound = enrichedEgv.get("upperBound").asInt();
+                    int lowerBound = enrichedEgv.get("lower_bound").asInt();
+                    int upperBound = enrichedEgv.get("upper_bound").asInt();
                     return (integerValue >= lowerBound && integerValue <= upperBound) ? "true" : "false";
                 });
         areValuesInRange.to("are-values-in-range", Produced.with(Serdes.String(), Serdes.String()));
 
         return builder.build();
-    }
-
-    public static List<JsonNode> getMatchingRanges(KTable<Integer, JsonNode> ranges, JsonNode egv) {
-        // get a single range from KTable where systemTime >= start_time and systemTime <= end_time
-        String systemTime = egv.get("systemTime").asText()+"Z";
-        Instant egvInstant = Instant.parse(systemTime);
-        DateFormat dateFormat = new SimpleDateFormat("hh:mm:ss");
-        List<JsonNode> matchingRanges = new ArrayList<>();
-        ranges.toStream().foreach((range_id, range) -> {
-            Instant startInstant;
-            try {
-                Date startDate = dateFormat.parse(range.get("start_time").asText());
-                startInstant = startDate.toInstant();
-            } catch (ParseException e) {
-                e.printStackTrace();
-                return;
-            }
-            Instant endInstant;
-            try {
-                Date endDate = dateFormat.parse(range.get("end_time").asText());
-                endInstant = endDate.toInstant();
-            } catch (ParseException e) {
-                e.printStackTrace();
-                return;
-            }
-            if (egvInstant.compareTo(startInstant) >= 0 && egvInstant.compareTo(endInstant) <= 0) {
-                matchingRanges.add(range);
-            }
-        });
-        return matchingRanges;
     }
 }
