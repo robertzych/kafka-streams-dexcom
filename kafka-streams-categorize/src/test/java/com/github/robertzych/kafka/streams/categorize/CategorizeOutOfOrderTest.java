@@ -103,7 +103,7 @@ public class CategorizeOutOfOrderTest {
         // highLateEveningEgv arrives after the eveningRange has been updated
         ObjectNode highLateEveningEgv = JsonNodeFactory.instance.objectNode();
         highLateEveningEgv.put("value", 160);
-        highLateEveningEgv.put("systemTime", "2020-11-02T23:00:00");
+        highLateEveningEgv.put("systemTime", "2020-11-02T22:30:00");
         egvsTopic.pipeInput("robert", highLateEveningEgv, startTime.plusSeconds(1));
     }
 
