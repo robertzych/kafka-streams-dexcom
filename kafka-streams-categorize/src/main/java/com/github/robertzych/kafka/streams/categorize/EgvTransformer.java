@@ -37,6 +37,7 @@ public class EgvTransformer implements ValueTransformer<JsonNode, JsonNode> {
     @Override
     public JsonNode transform(JsonNode egv) {
         String systemTime = egv.get("systemTime").asText();
+        Instant systemInstant = Instant.parse(systemTime + "Z");
         DateFormat dateFormat = new SimpleDateFormat("hh:mm:ss");
         String egvTime = systemTime.split(String.valueOf('T'))[1];
         Date egvDate;
@@ -52,6 +53,12 @@ public class EgvTransformer implements ValueTransformer<JsonNode, JsonNode> {
         ObjectNode enrichedEgv = null;
         while (iterator.hasNext()){
             KeyValue<Integer, ValueAndTimestamp<JsonNode>> record = iterator.next();
+            Date recordUpdated = new Date(record.value.timestamp());
+            Instant recordInstant = recordUpdated.toInstant();
+            // check if the range record was updated after the egv was created
+            if (recordInstant.compareTo(systemInstant) > 0) {
+                continue;
+            }
             JsonNode range = record.value.value();
             String start_time = range.get("start_time").asText();
             Date startDate;
@@ -73,7 +80,8 @@ public class EgvTransformer implements ValueTransformer<JsonNode, JsonNode> {
             Instant endInstant = endDate.toInstant();
             if (egvInstant.compareTo(startInstant) >= 0 && egvInstant.compareTo(endInstant) <= 0) {
                 enrichedEgv = JsonNodeFactory.instance.objectNode();
-                enrichedEgv.put("value", egv.get("value").asInt());
+                int value = egv.get("value").asInt();
+                enrichedEgv.put("value", value);
                 enrichedEgv.put("lower_bound", range.get("lower_bound").asInt());
                 enrichedEgv.put("upper_bound", range.get("upper_bound").asInt());
                 break;

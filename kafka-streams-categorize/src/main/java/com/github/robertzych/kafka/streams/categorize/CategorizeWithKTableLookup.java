@@ -8,12 +8,10 @@ import org.apache.kafka.common.serialization.Serdes;
 import org.apache.kafka.common.serialization.Serializer;
 import org.apache.kafka.connect.json.JsonDeserializer;
 import org.apache.kafka.connect.json.JsonSerializer;
-import org.apache.kafka.streams.KafkaStreams;
-import org.apache.kafka.streams.StreamsBuilder;
-import org.apache.kafka.streams.StreamsConfig;
-import org.apache.kafka.streams.Topology;
+import org.apache.kafka.streams.*;
 import org.apache.kafka.streams.kstream.*;
 
+import java.time.Instant;
 import java.util.Properties;
 
 public class CategorizeWithKTableLookup {
@@ -57,8 +55,16 @@ public class CategorizeWithKTableLookup {
                 Consumed.with(Serdes.String(), jsonSerde));
 
         String rangesStateStoreName = "rangesStore";
-        KTable<Integer, JsonNode> ranges = builder.table("ranges_topic",
-                Consumed.with(Serdes.Integer(), jsonSerde),
+//        KTable<Integer, JsonNode> ranges = builder.table("ranges_topic",
+//                Consumed.with(Serdes.Integer(), jsonSerde),
+//                Materialized.as(rangesStateStoreName));
+        builder.stream("ranges_topic", Consumed.with(Serdes.Integer(), jsonSerde))
+                .map((key, value) -> {
+                    String newKey = String.format("%d-%s", key, Instant.now().toString());
+                    return KeyValue.pair(newKey, value);
+                }).to("ranges-rekeyed", Produced.with(Serdes.String(), jsonSerde));
+        builder.table("ranges-rekeyed",
+                Consumed.with(Serdes.String(), jsonSerde),
                 Materialized.as(rangesStateStoreName));
 
         // enrich the egvs with lower/upper bounds from a matching range

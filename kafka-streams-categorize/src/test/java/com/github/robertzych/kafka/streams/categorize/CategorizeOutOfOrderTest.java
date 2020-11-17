@@ -12,6 +12,7 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Properties;
 
@@ -56,7 +57,7 @@ public class CategorizeOutOfOrderTest {
         whenSleepingRange.put("end_time", "05:59:59");
         whenSleepingRange.put("lower_bound", 80);
         whenSleepingRange.put("upper_bound", 150);
-        Instant startTime = Instant.now();
+        Instant startTime = Instant.parse("2020-11-02T00:00:00Z");
         rangesTopic.pipeInput(1, whenSleepingRange, startTime);
 
         ObjectNode whenActiveRange = JsonNodeFactory.instance.objectNode();
@@ -64,30 +65,30 @@ public class CategorizeOutOfOrderTest {
         whenActiveRange.put("end_time", "21:59:59");
         whenActiveRange.put("lower_bound", 70);
         whenActiveRange.put("upper_bound", 180);
-        rangesTopic.pipeInput(2, whenActiveRange, startTime.plusSeconds(1));
+        rangesTopic.pipeInput(2, whenActiveRange, startTime);
 
         ObjectNode eveningRange = JsonNodeFactory.instance.objectNode();
         eveningRange.put("start_time", "22:00:00");
         eveningRange.put("end_time", "23:59:59");
         eveningRange.put("lower_bound", 80);
         eveningRange.put("upper_bound", 150);
-        rangesTopic.pipeInput(3, eveningRange, startTime.plusSeconds(2));
+        rangesTopic.pipeInput(3, eveningRange, startTime);
 
         // inserts egvs into egvs_topic
         ObjectNode lowEarlyMorningEgv = JsonNodeFactory.instance.objectNode();
         lowEarlyMorningEgv.put("value", 75);
         lowEarlyMorningEgv.put("systemTime", "2020-11-02T02:00:00");
-        egvsTopic.pipeInput("robert", lowEarlyMorningEgv, startTime.plusSeconds(3));
+        egvsTopic.pipeInput("robert", lowEarlyMorningEgv, startTime);
 
         ObjectNode normalNoonEgv = JsonNodeFactory.instance.objectNode();
         normalNoonEgv.put("value", 100);
         normalNoonEgv.put("systemTime", "2020-11-02T13:00:00");
-        egvsTopic.pipeInput("robert", normalNoonEgv, startTime.plusSeconds(4));
+        egvsTopic.pipeInput("robert", normalNoonEgv, startTime);
 
         ObjectNode highEgv = JsonNodeFactory.instance.objectNode();
         highEgv.put("value", 265);
         highEgv.put("systemTime", "2020-11-02T19:00:00");
-        egvsTopic.pipeInput("robert", highEgv, startTime.plusSeconds(5));
+        egvsTopic.pipeInput("robert", highEgv, startTime);
 
         // setup for out of order
         // increase the upper bound of the eveningRange
@@ -95,16 +96,15 @@ public class CategorizeOutOfOrderTest {
         eveningRangeUpdated.put("start_time", "22:00:00");
         eveningRangeUpdated.put("end_time", "23:59:59");
         eveningRangeUpdated.put("lower_bound", 80);
-        eveningRangeUpdated.put("upper_bound", 180); // was: 150
-        Instant eveningRangeUpdateTime = startTime.plusSeconds(60);
-        rangesTopic.pipeInput(3, eveningRangeUpdated, eveningRangeUpdateTime);
+        eveningRangeUpdated.put("upper_bound", 200); // was: 150
+        Instant eveningRangeUpdatedInstant = Instant.parse("2020-11-02T23:00:00Z");
+        rangesTopic.pipeInput(3, eveningRangeUpdated, eveningRangeUpdatedInstant);
 
         // highLateEveningEgv arrives after the eveningRange has been updated
         ObjectNode highLateEveningEgv = JsonNodeFactory.instance.objectNode();
         highLateEveningEgv.put("value", 160);
         highLateEveningEgv.put("systemTime", "2020-11-02T23:00:00");
-        Instant highLateEveningTime = eveningRangeUpdateTime.plusSeconds(-10);
-        egvsTopic.pipeInput("robert", highLateEveningEgv, highLateEveningTime);
+        egvsTopic.pipeInput("robert", highLateEveningEgv, startTime.plusSeconds(1));
     }
 
     @After
@@ -121,8 +121,7 @@ public class CategorizeOutOfOrderTest {
         boolean highEgvInRange = Boolean.parseBoolean(inRangeTopic.readValue());
         assertFalse(highEgvInRange);
         boolean highLateEveningInRange = Boolean.parseBoolean(inRangeTopic.readValue());
-        // this is failing because the eveningRange's upper_bound was changed to 180
-        // but should be passing because highLateEvening was produced 10 seconds before the update
+        // this should be false because the eveningRange's upper_bound was changed to 200 after highLateEveningEgv was generated
         assertFalse(highLateEveningInRange);
     }
 }
