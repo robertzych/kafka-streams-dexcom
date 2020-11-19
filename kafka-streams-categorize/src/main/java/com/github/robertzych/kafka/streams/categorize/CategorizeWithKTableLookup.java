@@ -10,7 +10,11 @@ import org.apache.kafka.connect.json.JsonDeserializer;
 import org.apache.kafka.connect.json.JsonSerializer;
 import org.apache.kafka.streams.*;
 import org.apache.kafka.streams.kstream.*;
+import org.apache.kafka.streams.state.Stores;
+import org.apache.kafka.streams.state.WindowBytesStoreSupplier;
+import org.apache.kafka.streams.state.WindowStore;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Properties;
 
@@ -55,17 +59,19 @@ public class CategorizeWithKTableLookup {
                 Consumed.with(Serdes.String(), jsonSerde));
 
         String rangesStateStoreName = "rangesStore";
-//        KTable<Integer, JsonNode> ranges = builder.table("ranges_topic",
-//                Consumed.with(Serdes.Integer(), jsonSerde),
-//                Materialized.as(rangesStateStoreName));
-        builder.stream("ranges_topic", Consumed.with(Serdes.Integer(), jsonSerde))
-                .map((key, value) -> {
-                    String newKey = String.format("%d-%s", key, Instant.now().toString());
-                    return KeyValue.pair(newKey, value);
-                }).to("ranges-rekeyed", Produced.with(Serdes.String(), jsonSerde));
-        builder.table("ranges-rekeyed",
-                Consumed.with(Serdes.String(), jsonSerde),
-                Materialized.as(rangesStateStoreName));
+        KTable<Windowed<Integer>, JsonNode> windowedRanges = builder.stream("ranges_topic",
+                Consumed.with(Serdes.Integer(), jsonSerde))
+                .groupByKey()
+                .windowedBy(TimeWindows.of(Duration.ofHours(1)))
+                .aggregate(() -> null, // initializer
+                        (aggKey, newValue, aggValue) -> newValue, // aggregator returns newest value
+                        Materialized.<Integer, JsonNode>as(
+                                Stores.persistentTimestampedWindowStore(rangesStateStoreName,
+                                        Duration.ofHours(24), // retentionPeriod
+                                        Duration.ofHours(1), // windowSize
+                                        false) // retainDuplicates
+                        ).withKeySerde(Serdes.Integer()).withValueSerde(jsonSerde));
+
 
         // enrich the egvs with lower/upper bounds from a matching range
         KStream<String, JsonNode> enrichedEgvs =

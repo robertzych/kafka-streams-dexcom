@@ -5,11 +5,9 @@ import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.kafka.streams.KeyValue;
 import org.apache.kafka.streams.kstream.ValueTransformer;
+import org.apache.kafka.streams.kstream.Windowed;
 import org.apache.kafka.streams.processor.ProcessorContext;
-import org.apache.kafka.streams.state.KeyValueIterator;
-import org.apache.kafka.streams.state.KeyValueStore;
-import org.apache.kafka.streams.state.TimestampedKeyValueStore;
-import org.apache.kafka.streams.state.ValueAndTimestamp;
+import org.apache.kafka.streams.state.*;
 
 import java.text.DateFormat;
 import java.text.ParseException;
@@ -19,7 +17,7 @@ import java.util.Date;
 
 public class EgvTransformer implements ValueTransformer<JsonNode, JsonNode> {
 
-    private TimestampedKeyValueStore<Integer, JsonNode> stateStore;
+    private TimestampedWindowStore<Integer, JsonNode> stateStore;
     private final String storeName;
     private ProcessorContext context;
 
@@ -31,7 +29,7 @@ public class EgvTransformer implements ValueTransformer<JsonNode, JsonNode> {
     @SuppressWarnings("unchecked")
     public void init(ProcessorContext processorContext) {
         this.context = processorContext;
-        this.stateStore = (TimestampedKeyValueStore) this.context.getStateStore(storeName);
+        this.stateStore = (TimestampedWindowStore) this.context.getStateStore(storeName);
     }
 
     @Override
@@ -49,10 +47,10 @@ public class EgvTransformer implements ValueTransformer<JsonNode, JsonNode> {
         }
         Instant egvInstant = egvDate.toInstant();
 
-        KeyValueIterator<Integer, ValueAndTimestamp<JsonNode>> iterator = stateStore.all();
+        KeyValueIterator<Windowed<Integer>, ValueAndTimestamp<JsonNode>> iterator = stateStore.all();
         ObjectNode enrichedEgv = null;
         while (iterator.hasNext()){
-            KeyValue<Integer, ValueAndTimestamp<JsonNode>> record = iterator.next();
+            KeyValue<Windowed<Integer>, ValueAndTimestamp<JsonNode>> record = iterator.next();
             Date recordUpdated = new Date(record.value.timestamp());
             Instant recordInstant = recordUpdated.toInstant();
             // check if the range record was updated after the egv was created
