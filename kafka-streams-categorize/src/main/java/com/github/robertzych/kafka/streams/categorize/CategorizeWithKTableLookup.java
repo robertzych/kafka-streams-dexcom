@@ -54,10 +54,6 @@ public class CategorizeWithKTableLookup {
         final Deserializer<JsonNode> jsonDeserializer = new JsonDeserializer();
         final Serde<JsonNode> jsonSerde = Serdes.serdeFrom(jsonSerializer, jsonDeserializer);
 
-        // input topics
-        KStream<String, JsonNode> egvs = builder.stream("egvs_topic",
-                Consumed.with(Serdes.String(), jsonSerde));
-
         String rangesStateStoreName = "rangesStore";
         KTable<Windowed<Integer>, JsonNode> windowedRanges = builder.stream("ranges_topic",
                 Consumed.with(Serdes.Integer(), jsonSerde))
@@ -72,6 +68,8 @@ public class CategorizeWithKTableLookup {
                                         false) // retainDuplicates
                         ).withKeySerde(Serdes.Integer()).withValueSerde(jsonSerde));
 
+        KStream<String, JsonNode> egvs = builder.stream("egvs_topic",
+                Consumed.with(Serdes.String(), jsonSerde));
 
         // enrich the egvs with lower/upper bounds from a matching range
         KStream<String, JsonNode> enrichedEgvs =
